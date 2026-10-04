@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4f46e5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Todos">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>Todos</title>
+<script>
+  // Design vor dem ersten Zeichnen setzen, damit nichts aufblitzt
+  try {
+    const t = JSON.parse(localStorage.getItem('todos.settings'))?.theme;
+    if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+  } catch {}
+</script>
+<style>
+  /* Basisfarben; Akzent, Schrift, Ecken und Dichte setzt applySettings() */
+  :root {
+    --accent: #4f46e5; --on-accent: #fff; --tint: 0%;
+    --fs: 16px; --radius: 14px; --pad: 12px;
+    --base-bg: #f5f5f7; --card: #fff; --text: #1c1c1e; --muted: #8e8e93; --line: #e5e5ea;
+    --high: #e5484d; --mid: #f5a524; --low: #30a46c;
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    --base-bg: #000; --card: #1c1c1e; --text: #f2f2f7; --muted: #8e8e93; --line: #2c2c2e; color-scheme: dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --base-bg: #000; --card: #1c1c1e; --text: #f2f2f7; --muted: #8e8e93; --line: #2c2c2e; color-scheme: dark;
+    }
+  }
+  :root { --bg: color-mix(in srgb, var(--accent) var(--tint), var(--base-bg)); }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: var(--fs)/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: env(safe-area-inset-top) 16px calc(env(safe-area-inset-bottom) + 96px);
+  }
+  header { padding: 20px 0 8px; display: flex; align-items: center; gap: 12px; }
+  h1 { margin: 0; font-size: 1.9em; flex: 1; }
+  .count { color: var(--muted); font-size: .875em; }
+  .gear {
+    background: var(--card); border: 1px solid var(--line); color: var(--text); border-radius: 50%;
+    width: 40px; height: 40px; font-size: 20px; display: grid; place-items: center; padding: 0;
+  }
+
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0 12px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: none; border: 1px solid var(--line); background: var(--card); color: var(--text);
+    border-radius: 999px; padding: 6px 14px; font-size: 14px;
+  }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+  .toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
+  .toolbar select { flex: 1; }
+
+  ul { list-style: none; margin: 0; padding: 0; }
+  li {
+    background: var(--card); border-radius: var(--radius); padding: var(--pad) 14px; margin-bottom: calc(var(--pad) * .66);
+    display: flex; gap: 12px; align-items: flex-start; border-left: 5px solid transparent;
+  }
+  li.p3 { border-left-color: var(--high); }
+  li.p2 { border-left-color: var(--mid); }
+  li.p1 { border-left-color: var(--low); }
+  li.done { opacity: .5; }
+  li.done .title { text-decoration: line-through; }
+  .check {
+    flex: none; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--muted);
+    background: none; margin-top: 1px; display: grid; place-items: center; color: var(--on-accent); font-size: 15px;
+  }
+  li.done .check { background: var(--accent); border-color: var(--accent); }
+  .body { flex: 1; min-width: 0; }
+  .title { word-wrap: break-word; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; font-size: .8em; color: var(--muted); }
+  .tag { background: var(--bg); border-radius: calc(var(--radius) * .45); padding: 1px 7px; }
+  .overdue { color: var(--high); font-weight: 600; }
+  .today { color: var(--mid); font-weight: 600; }
+  .empty { text-align: center; color: var(--muted); padding: 48px 0; }
+
+  .addbar {
+    position: fixed; left: 0; right: 0; bottom: 0; background: var(--card); border-top: 1px solid var(--line);
+    padding: 10px 16px calc(env(safe-area-inset-bottom) + 10px); display: flex; gap: 8px;
+  }
+  input, select, textarea {
+    font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+    border-radius: calc(var(--radius) * .7); padding: 10px 12px; width: 100%;
+  }
+  .addbar input { flex: 1; }
+  button.primary {
+    flex: none; background: var(--accent); color: var(--on-accent); border: 0; border-radius: calc(var(--radius) * .7);
+    padding: 0 18px; font: inherit; font-weight: 600; min-height: 44px;
+  }
+  button.ghost { background: none; border: 0; color: var(--accent); font: inherit; padding: 10px; }
+
+  dialog {
+    border: 0; border-radius: calc(var(--radius) + 4px); background: var(--card); color: var(--text);
+    width: min(480px, calc(100% - 32px)); padding: 20px; max-height: calc(100% - 32px);
+  }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+  dialog h2 { margin: 0 0 14px; font-size: 20px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+  .prio, .seg { display: flex; gap: 6px; }
+  .prio button, .seg button {
+    flex: 1; border: 1px solid var(--line); background: var(--bg); color: var(--text);
+    border-radius: calc(var(--radius) * .7); padding: 10px 0; font: inherit; font-size: 14px;
+  }
+  .seg button.on { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+  .swatch {
+    width: 38px; height: 38px; border-radius: 50%; border: 3px solid var(--card); padding: 0;
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .swatch.on { box-shadow: 0 0 0 2px var(--text); }
+  .swatch.custom { position: relative; overflow: hidden; background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); }
+  .swatch.custom input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; padding: 0; border: 0; }
+  .prio button.on[data-p="3"] { background: var(--high); color: #fff; border-color: var(--high); }
+  .prio button.on[data-p="2"] { background: var(--mid); color: #fff; border-color: var(--mid); }
+  .prio button.on[data-p="1"] { background: var(--low); color: #fff; border-color: var(--low); }
+  .prio button.on[data-p="0"] { background: var(--muted); color: #fff; border-color: var(--muted); }
+  .actions { display: flex; justify-content: space-between; margin-top: 20px; }
+  .danger { color: var(--high) !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Todos</h1>
+  <span class="count" id="count"></span>
+  <button class="gear" id="btnSettings" aria-label="Einstellungen">⚙️</button>
+</header>
+
+<div class="chips" id="chips"></div>
+
+<div class="toolbar">
+  <select id="sort" aria-label="Sortierung">
+    <option value="smart">Sortieren: Wichtig zuerst</option>
+    <option value="deadline">Sortieren: Deadline</option>
+    <option value="created">Sortieren: Neueste</option>
+  </select>
+  <select id="showDone" aria-label="Erledigte">
+    <option value="hide">Offene</option>
+    <option value="show">Alle</option>
+  </select>
+</div>
+
+<ul id="list"></ul>
+
+<form class="addbar" id="addForm" autocomplete="off">
+  <input id="quick" placeholder="Neues Todo … (z.B. Milch kaufen !hoch #Einkauf)" enterkeyhint="done">
+  <button class="primary" type="submit">+</button>
+</form>
+
+<dialog id="dlg">
+  <form method="dialog" id="editForm">
+    <h2 id="dlgTitle">Todo bearbeiten</h2>
+    <label for="fTitle">Titel</label>
+    <input id="fTitle" required>
+    <label>Priorität</label>
+    <div class="prio" id="fPrio">
+      <button type="button" data-p="0">Keine</button>
+      <button type="button" data-p="1">Niedrig</button>
+      <button type="button" data-p="2">Mittel</button>
+      <button type="button" data-p="3">Hoch</button>
+    </div>
+    <label for="fDue">Deadline</label>
+    <input id="fDue" type="date">
+    <label for="fCat">Kategorie</label>
+    <input id="fCat" list="catList" placeholder="z.B. Arbeit, Privat, Einkauf">
+    <datalist id="catList"></datalist>
+    <label for="fNote">Notiz</label>
+    <textarea id="fNote" rows="3"></textarea>
+    <div class="actions">
+      <button type="button" class="ghost danger" id="btnDelete">Löschen</button>
+      <div>
+        <button type="button" class="ghost" id="btnCancel">Abbrechen</button>
+        <button type="submit" class="primary" id="btnSave">Speichern</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="settings">
+  <h2>Aussehen</h2>
+  <label>Design</label>
+  <div class="seg" data-key="theme">
+    <button type="button" data-v="system">System</button>
+    <button type="button" data-v="light">Hell</button>
+    <button type="button" data-v="dark">Dunkel</button>
+  </div>
+  <label>Akzentfarbe</label>
+  <div class="swatches" id="swatches"></div>
+  <label>Hintergrund</label>
+  <div class="seg" data-key="tint">
+    <button type="button" data-v="0">Neutral</button>
+    <button type="button" data-v="6">Leicht getönt</button>
+    <button type="button" data-v="14">Getönt</button>
+  </div>
+  <label>Schriftgröße</label>
+  <div class="seg" data-key="fs">
+    <button type="button" data-v="14">Klein</button>
+    <button type="button" data-v="16">Normal</button>
+    <button type="button" data-v="19">Groß</button>
+  </div>
+  <label>Ecken</label>
+  <div class="seg" data-key="radius">
+    <button type="button" data-v="4">Eckig</button>
+    <button type="button" data-v="14">Rund</button>
+    <button type="button" data-v="22">Sehr rund</button>
+  </div>
+  <label>Dichte</label>
+  <div class="seg" data-key="pad">
+    <button type="button" data-v="7">Kompakt</button>
+    <button type="button" data-v="12">Normal</button>
+    <button type="button" data-v="18">Luftig</button>
+  </div>
+  <div class="actions">
+    <button type="button" class="ghost" id="btnReset">Zurücksetzen</button>
+    <button type="button" class="primary" id="btnSettingsDone">Fertig</button>
+  </div>
+</dialog>
+
+<script>
+// ---------- Aussehen ----------
+const SETTINGS_KEY = 'todos.settings';
+const DEFAULTS = { theme: 'system', accent: '#4f46e5', tint: '0', fs: '16', radius: '14', pad: '12' };
+const ACCENTS = ['#4f46e5', '#2563eb', '#0891b2', '#059669', '#65a30d', '#ea580c', '#e11d48', '#c026d3', '#7c3aed', '#475569'];
+let settings = loadSettings();
+
+function loadSettings() {
+  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY)) }; } catch { return { ...DEFAULTS }; }
+}
+function saveSettings() {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {}
+}
+// Schwarze oder weiße Schrift auf der Akzentfarbe, je nachdem was besser lesbar ist
+function onAccent(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map(c => c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.4 ? '#000' : '#fff';
+}
+// Beliebige CSS-Farbe in #rrggbb umwandeln (über einen 1-Pixel-Canvas)
+function toHex(css) {
+  const ctx = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d');
+  ctx.fillStyle = css; ctx.fillRect(0, 0, 1, 1);
+  return '#' + [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+function applySettings() {
+  const root = document.documentElement, s = settings;
+  if (s.theme === 'system') delete root.dataset.theme; else root.dataset.theme = s.theme;
+  root.style.setProperty('--accent', s.accent);
+  root.style.setProperty('--on-accent', onAccent(s.accent));
+  root.style.setProperty('--tint', s.tint + '%');
+  root.style.setProperty('--fs', s.fs + 'px');
+  root.style.setProperty('--radius', s.radius + 'px');
+  root.style.setProperty('--pad', s.pad + 'px');
+  // Statusleiste am Handy passend zum Hintergrund
+  document.querySelector('meta[name=theme-color]').content = toHex(getComputedStyle(document.body).backgroundColor);
+  renderSettings();
+}
+function renderSettings() {
+  for (const seg of document.querySelectorAll('#settings .seg'))
+    for (const b of seg.children) b.classList.toggle('on', b.dataset.v === settings[seg.dataset.key]);
+  const sw = document.getElementById('swatches');
+  const custom = !ACCENTS.includes(settings.accent);
+  sw.innerHTML = ACCENTS.map(c =>
+    `<button type="button" class="swatch${c === settings.accent ? ' on' : ''}" style="background:${c}" data-c="${c}" aria-label="Farbe ${c}"></button>`
+  ).join('') + `<span class="swatch custom${custom ? ' on' : ''}" title="Eigene Farbe"
+    ${custom ? `style="background:${settings.accent}"` : ''}><input type="color" value="${settings.accent}" aria-label="Eigene Farbe"></span>`;
+}
+function setSetting(k, v) { settings[k] = v; saveSettings(); applySettings(); }
+
+document.getElementById('settings').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (b?.dataset.v) setSetting(b.closest('.seg').dataset.key, b.dataset.v);
+  if (b?.dataset.c) setSetting('accent', b.dataset.c);
+});
+document.getElementById('swatches').addEventListener('input', e => {
+  settings.accent = e.target.value; saveSettings();
+  document.documentElement.style.setProperty('--accent', settings.accent);
+  document.documentElement.style.setProperty('--on-accent', onAccent(settings.accent));
+});
+document.getElementById('swatches').addEventListener('change', applySettings);
+document.getElementById('btnSettings').onclick = () => document.getElementById('settings').showModal();
+document.getElementById('btnSettingsDone').onclick = () => document.getElementById('settings').close();
+document.getElementById('btnReset').onclick = () => { settings = { ...DEFAULTS }; saveSettings(); applySettings(); };
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applySettings);
+applySettings();
+
+// ---------- Todos ----------
+const KEY = 'todos.v1';
+const PRIO_NAMES = { 0: '', 1: 'Niedrig', 2: 'Mittel', 3: 'Hoch' };
+const PRIO_WORDS = { hoch: 3, mittel: 2, niedrig: 1 };
+
+let todos = load();
+let filter = 'Alle';
+let editing = null;
+let editPrio = 0;
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; }
+}
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(todos)); } catch {}
+}
+const $ = id => document.getElementById(id);
+
+function today() {
+  const d = new Date(); d.setHours(0, 0, 0, 0); return d;
+}
+function parseDate(s) {
+  const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d);
+}
+function dueLabel(s) {
+  const diff = Math.round((parseDate(s) - today()) / 86400000);
+  if (diff < 0) return { text: diff === -1 ? 'Gestern' : `Seit ${-diff} Tagen fällig`, cls: 'overdue' };
+  if (diff === 0) return { text: 'Heute', cls: 'today' };
+  if (diff === 1) return { text: 'Morgen', cls: '' };
+  if (diff < 7) return { text: parseDate(s).toLocaleDateString('de-DE', { weekday: 'long' }), cls: '' };
+  return { text: parseDate(s).toLocaleDateString('de-DE', { day: 'numeric', month: 'short' }), cls: '' };
+}
+
+// Schnelleingabe: "Text !hoch #Kategorie @morgen"
+function parseQuick(text) {
+  let prio = 0, cat = '', due = '';
+  text = text.replace(/(^|\s)!(hoch|mittel|niedrig|!{0,2})(?=\s|$)/i, (_, sp, w) => {
+    prio = PRIO_WORDS[w.toLowerCase()] ?? w.length + 1; return sp;
+  });
+  text = text.replace(/(^|\s)#(\S+)/, (_, sp, c) => { cat = c; return sp; });
+  text = text.replace(/(^|\s)@(heute|morgen|übermorgen)(?=\s|$)/i, (_, sp, w) => {
+    const d = today(); d.setDate(d.getDate() + { heute: 0, morgen: 1, 'übermorgen': 2 }[w.toLowerCase()]);
+    due = d.toLocaleDateString('sv-SE'); return sp;
+  });
+  return { title: text.trim(), prio, cat, due };
+}
+
+function categories() {
+  return [...new Set(todos.map(t => t.cat).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
+}
+
+function sorted(list) {
+  const mode = $('sort').value;
+  const dueVal = t => t.due ? parseDate(t.due).getTime() : Infinity;
+  return list.slice().sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    if (mode === 'created') return b.created - a.created;
+    if (mode === 'deadline') return dueVal(a) - dueVal(b) || b.prio - a.prio;
+    // smart: überfällig/heute zuerst, dann Priorität, dann Deadline
+    const urgent = t => t.due && parseDate(t.due) <= today() ? 1 : 0;
+    return urgent(b) - urgent(a) || b.prio - a.prio || dueVal(a) - dueVal(b) || b.created - a.created;
+  });
+}
+
+function render() {
+  const cats = categories();
+  if (filter !== 'Alle' && filter !== 'Heute' && !cats.includes(filter)) filter = 'Alle';
+
+  $('chips').innerHTML = '';
+  for (const c of ['Alle', 'Heute', ...cats]) {
+    const b = document.createElement('button');
+    b.className = 'chip' + (c === filter ? ' on' : '');
+    b.textContent = c;
+    b.onclick = () => { filter = c; render(); };
+    $('chips').append(b);
+  }
+  $('catList').innerHTML = cats.map(c => `<option value="${esc(c)}">`).join('');
+
+  let list = todos;
+  if (filter === 'Heute') list = list.filter(t => t.due && parseDate(t.due) <= today());
+  else if (filter !== 'Alle') list = list.filter(t => t.cat === filter);
+  const open = list.filter(t => !t.done).length;
+  if ($('showDone').value === 'hide') list = list.filter(t => !t.done);
+  $('count').textContent = `${open} offen`;
+
+  const ul = $('list');
+  ul.innerHTML = '';
+  if (!list.length) {
+    ul.innerHTML = `<div class="empty">${todos.length ? 'Nichts zu tun hier 🎉' : 'Noch keine Todos.<br>Unten einfach eintippen.'}</div>`;
+    return;
+  }
+  for (const t of sorted(list)) {
+    const li = document.createElement('li');
+    li.className = `p${t.prio}` + (t.done ? ' done' : '');
+    const meta = [];
+    if (t.due) { const d = dueLabel(t.due); meta.push(`<span class="${t.done ? '' : d.cls}">📅 ${d.text}</span>`); }
+    if (t.prio) meta.push(`<span>${PRIO_NAMES[t.prio]}</span>`);
+    if (t.cat) meta.push(`<span class="tag">${esc(t.cat)}</span>`);
+    if (t.note) meta.push('<span>📝</span>');
+    li.innerHTML = `
+      <button class="check" aria-label="Erledigt">${t.done ? '✓' : ''}</button>
+      <div class="body"><div class="title">${esc(t.title)}</div>${meta.length ? `<div class="meta">${meta.join('')}</div>` : ''}</div>`;
+    li.querySelector('.check').onclick = e => {
+      e.stopPropagation(); t.done = !t.done; save(); render();
+    };
+    li.onclick = () => openEdit(t);
+    ul.append(li);
+  }
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+function setPrio(p) {
+  editPrio = p;
+  for (const b of $('fPrio').children) b.classList.toggle('on', +b.dataset.p === p);
+}
+
+function openEdit(t) {
+  editing = t;
+  $('fTitle').value = t.title;
+  $('fDue').value = t.due || '';
+  $('fCat').value = t.cat || '';
+  $('fNote').value = t.note || '';
+  setPrio(t.prio);
+  $('dlg').showModal();
+}
+
+$('fPrio').onclick = e => { if (e.target.dataset.p) setPrio(+e.target.dataset.p); };
+$('btnCancel').onclick = () => $('dlg').close();
+$('btnDelete').onclick = () => {
+  if (confirm('Todo löschen?')) { todos = todos.filter(t => t !== editing); save(); render(); $('dlg').close(); }
+};
+$('editForm').onsubmit = () => {
+  Object.assign(editing, {
+    title: $('fTitle').value.trim() || editing.title,
+    prio: editPrio, due: $('fDue').value, cat: $('fCat').value.trim(), note: $('fNote').value.trim(),
+  });
+  save(); render();
+};
+
+$('addForm').onsubmit = e => {
+  e.preventDefault();
+  const q = parseQuick($('quick').value);
+  if (!q.title) return;
+  if (!q.cat && filter !== 'Alle' && filter !== 'Heute') q.cat = filter;
+  todos.push({ id: Date.now().toString(36), ...q, note: '', done: false, created: Date.now() });
+  $('quick').value = '';
+  save(); render();
+};
+
+$('sort').onchange = render;
+$('showDone').onchange = render;
+render();
+
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  navigator.serviceWorker.register('sw.js');
+}
+</script>
+</body>
+</html>
