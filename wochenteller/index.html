@@ -1,0 +1,1147 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f2f4ef" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1512" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Wochenteller">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>Wochenteller</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Grundgerüst für den Betrieb außerhalb von claude.ai */
+:root{color-scheme:light; padding-top:env(safe-area-inset-top, 0px); padding-bottom:env(safe-area-inset-bottom, 0px)}
+body{margin:0}
+img{max-width:100%}
+[hidden]{display:none!important}
+/* Layout: Wochenspalte mit Tageszeilen links, Einkaufszettel rechts (ab 960px); am Handy per Umschalter Plan/Einkaufsliste */
+:root{
+  --bg:#F2F4EF;
+  --surface:#FFFFFF;
+  --sunk:#E6EBE3;
+  --ink:#17241C;
+  --muted:#5A695F;
+  --line:#D5DDD1;
+  --accent:#2C694B;
+  --accent-ink:#FFFFFF;
+  --mark:#DE9C2E;
+  --mark-ink:#2A1B05;
+  --danger:#AE3F2A;
+  --shadow:rgba(20,30,24,.10);
+  --font-display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --font-body:"Figtree","Segoe UI",system-ui,-apple-system,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1512; --surface:#17201A; --sunk:#1D2721; --ink:#E4ECE6; --muted:#97A69C; --line:#2B3730;
+    --accent:#74C69C; --accent-ink:#0C1810; --mark:#EDB45B; --mark-ink:#2A1B05; --danger:#E8836C; --shadow:rgba(0,0,0,.4);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1512; --surface:#17201A; --sunk:#1D2721; --ink:#E4ECE6; --muted:#97A69C; --line:#2B3730;
+  --accent:#74C69C; --accent-ink:#0C1810; --mark:#EDB45B; --mark-ink:#2A1B05; --danger:#E8836C; --shadow:rgba(0,0,0,.4);
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:var(--font-body); font-size:15px; line-height:1.45;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));
+  padding-right:max(16px, env(safe-area-inset-right, 0px));
+  padding-block:0 40px;
+  -webkit-font-smoothing:antialiased;
+}
+body::before{content:""; position:fixed; inset:0 0 auto; height:env(safe-area-inset-top, 0px); z-index:10; background:var(--bg)}
+button,input,select,textarea{font:inherit; color:inherit}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.app{max-width:1160px; margin:0 auto}
+
+/* Kopfbereich */
+.top{position:sticky; top:env(safe-area-inset-top, 0px); z-index:5; background:var(--bg); padding-block:14px 12px; border-bottom:1px solid var(--line); display:flex; flex-direction:column; gap:12px}
+.top-row{display:flex; align-items:center; justify-content:space-between; gap:12px}
+.brand{display:flex; align-items:center; gap:8px; font-family:var(--font-display); font-weight:700; font-size:22px; letter-spacing:-.01em; line-height:1}
+.brand-mark{width:24px; height:24px; color:var(--mark); flex:none}
+.status{font-size:12px; font-weight:600; padding:4px 10px; border-radius:999px; background:var(--sunk); color:var(--muted); white-space:nowrap}
+.status[data-state="cloud"]{color:var(--accent)}
+.status[data-state="error"]{color:var(--danger)}
+.week-nav{display:flex; align-items:center; gap:8px}
+.icon-btn{width:40px; height:40px; flex:none; display:grid; place-items:center; border-radius:10px; border:1px solid var(--line); background:var(--surface); cursor:pointer}
+.icon-btn:hover{border-color:var(--accent)}
+.icon-btn svg{width:18px; height:18px}
+.week-label{display:flex; flex-direction:column; line-height:1.2; min-width:0; padding-inline:4px}
+.week-label strong{font-family:var(--font-display); font-size:19px; font-weight:700}
+.week-label span{font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums}
+#today{margin-left:auto}
+.tabs{display:grid; grid-template-columns:1fr 1fr; background:var(--sunk); border-radius:10px; padding:3px; gap:3px}
+.tabs button{border:0; background:transparent; padding:8px 10px; border-radius:8px; font-weight:600; cursor:pointer; color:var(--muted); display:flex; align-items:center; justify-content:center; gap:6px}
+.tabs button[aria-selected="true"]{background:var(--surface); color:var(--ink); box-shadow:0 1px 2px var(--shadow)}
+.badge{font-family:var(--font-mono); font-size:11px; line-height:1.5; background:var(--mark); color:var(--mark-ink); border-radius:999px; padding:0 7px; min-width:20px; text-align:center}
+
+/* Spalten */
+.layout{padding-top:4px}
+@media (min-width:960px){
+  .tabs{display:none}
+  .layout{display:grid; grid-template-columns:minmax(0,1.55fr) minmax(320px,1fr); gap:36px; align-items:start}
+  .list-panel{position:sticky; top:calc(var(--head-h, 120px) + env(safe-area-inset-top, 0px) + 20px); max-height:calc(100dvh - var(--head-h, 120px) - 40px); overflow:auto; margin-top:20px}
+}
+@media (max-width:959px){
+  #app[data-view="plan"] .list-panel{display:none}
+  #app[data-view="list"] .plan{display:none}
+  .list-panel{margin-top:16px}
+}
+
+/* Wochenplan */
+.notice{display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 12px; margin-top:16px; padding:10px 12px; border-radius:var(--radius); background:var(--sunk); font-size:13px; color:var(--muted)}
+.notice p{margin:0; max-width:52ch}
+.day{display:grid; grid-template-columns:52px minmax(0,1fr); gap:14px; padding-block:16px; border-bottom:1px solid var(--line)}
+.day:last-child{border-bottom:0}
+.day-head{display:flex; flex-direction:column; align-items:flex-start; line-height:1; padding-top:2px}
+.dow{font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted)}
+.dnum{font-family:var(--font-display); font-weight:700; font-size:30px; margin-top:5px; font-variant-numeric:tabular-nums}
+.dmon{font-size:12px; color:var(--muted); margin-top:3px}
+.today-tag{margin-top:7px; font-size:11px; font-weight:700; color:var(--mark-ink); background:var(--mark); border-radius:4px; padding:2px 5px}
+.day.is-past .day-head{opacity:.5}
+.day-body{display:flex; flex-direction:column; gap:8px; min-width:0}
+.meal{display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:3px 12px; width:100%; text-align:left; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:10px 12px; cursor:pointer}
+.meal:hover{border-color:var(--accent)}
+.meal-slot{grid-column:1 / -1; display:flex; align-items:center; gap:8px; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted)}
+.ex-tag{font-size:10px; letter-spacing:.04em; color:var(--ink); border:1px solid var(--mark); border-radius:4px; padding:0 5px; text-transform:none; font-weight:600}
+.meal-name{font-weight:600; font-size:16px; min-width:0; overflow-wrap:anywhere}
+.meal-meta{font-family:var(--font-mono); font-size:12px; color:var(--muted); white-space:nowrap}
+.add-btn{display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:transparent; border:1px dashed var(--line); border-radius:var(--radius); padding:9px 12px; color:var(--accent); font-weight:600; cursor:pointer}
+.add-btn:hover{border-color:var(--accent); background:var(--surface)}
+.day-empty{margin:6px 0 0; color:var(--muted); font-size:14px}
+
+/* Einkaufsliste */
+.list-panel{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:18px 18px 16px}
+.list-head{display:flex; align-items:baseline; justify-content:space-between; gap:12px}
+.list-head h2{margin:0; font-family:var(--font-display); font-size:21px; font-weight:700}
+.list-kw{font-family:var(--font-mono); font-size:12px; color:var(--muted)}
+.progress{height:4px; background:var(--sunk); border-radius:4px; margin-top:12px; overflow:hidden}
+.progress span{display:block; height:100%; width:0; background:var(--accent)}
+.list-count{margin:8px 0 2px; font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums}
+.items{list-style:none; margin:0; padding:0}
+.item label{display:grid; grid-template-columns:20px 84px minmax(0,1fr); gap:2px 12px; align-items:baseline; padding:10px 0; border-bottom:1px dashed var(--line); cursor:pointer}
+.item input{width:18px; height:18px; margin:0; accent-color:var(--accent); align-self:center; cursor:pointer}
+.qty{font-family:var(--font-mono); font-size:13px; text-align:right; font-variant-numeric:tabular-nums; overflow-wrap:anywhere}
+.iname{font-weight:500; min-width:0; overflow-wrap:anywhere}
+.ifor{grid-column:3; font-size:12px; color:var(--muted); min-width:0; overflow-wrap:anywhere}
+.items.done .qty,.items.done .iname{text-decoration:line-through; color:var(--muted)}
+.done-head{font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:20px 0 0}
+.list-empty{color:var(--muted); font-size:14px; margin:14px 0 4px; max-width:40ch}
+.list-actions{display:flex; flex-wrap:wrap; gap:8px; margin-top:16px}
+.local-note{font-size:12px; color:var(--muted); margin:14px 0 0}
+
+/* Buttons */
+.btn{display:inline-flex; align-items:center; gap:6px; font-weight:600; font-size:14px; padding:10px 14px; border-radius:9px; border:1px solid var(--line); background:var(--surface); color:var(--ink); cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn-primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+.btn-quiet{background:transparent; border-color:transparent; color:var(--accent)}
+.btn-quiet:hover{border-color:var(--line)}
+.btn-danger{color:var(--danger)}
+.btn-sm{padding:7px 11px; font-size:13px}
+.btn:disabled{opacity:.5; cursor:default}
+.spacer{flex:1}
+
+/* Dialoge */
+dialog{border:0; padding:0; background:var(--surface); color:var(--ink); border-radius:16px; width:min(540px, calc(100% - 32px)); max-width:calc(100% - 32px); max-height:calc(100dvh - 48px); box-shadow:0 20px 60px var(--shadow)}
+dialog::backdrop{background:rgba(8,14,10,.5)}
+.sheet{display:flex; flex-direction:column; max-height:calc(100dvh - 48px); margin:0}
+.sheet-head{display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:18px 20px 8px}
+.sheet-head > div{min-width:0}
+.sheet-body{padding:4px 20px 16px; overflow:auto; min-height:0}
+.sheet-foot{display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:12px 20px calc(14px + env(safe-area-inset-bottom, 0px)); border-top:1px solid var(--line)}
+@media (max-width:600px){
+  dialog{width:100%; max-width:100%; margin:auto 0 0; border-radius:16px 16px 0 0; max-height:92dvh}
+  .sheet{max-height:92dvh}
+}
+.close-btn{border:0; background:transparent}
+.eyebrow{font-size:12px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin:0}
+.sheet-title{margin:4px 0 0; font-family:var(--font-display); font-size:24px; font-weight:700; line-height:1.15; text-wrap:balance; overflow-wrap:anywhere}
+.ing-list{list-style:none; margin:6px 0 0; padding:0}
+.ing-list li{display:grid; grid-template-columns:84px minmax(0,1fr); gap:12px; padding:9px 0; border-bottom:1px dashed var(--line); align-items:baseline}
+.ing-list li span:last-child{min-width:0; overflow-wrap:anywhere}
+.detail-note{font-size:13px; color:var(--muted); margin:16px 0 0; display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px}
+.empty-ing{color:var(--muted); margin:10px 0 0}
+
+/* Formular */
+.field{display:flex; flex-direction:column; gap:6px; margin-top:14px; min-width:0}
+.field label{font-size:13px; font-weight:600}
+.field-row{display:grid; grid-template-columns:1fr 1fr; gap:12px}
+input[type="text"],input[type="date"],select,textarea{font-size:16px; background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:10px 12px; width:100%; min-width:0}
+input[type="text"]:focus,input[type="date"]:focus,select:focus,textarea:focus{border-color:var(--accent); outline:none; box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent)}
+textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-height:1.55}
+.field-help{font-size:12px; color:var(--muted); margin:0}
+.field-error{font-size:13px; color:var(--danger); margin:0}
+.autofill{font-size:12px; color:var(--accent); margin:0; font-weight:600}
+.preview{margin-top:12px; font-size:13px; color:var(--muted)}
+.preview-list{list-style:none; margin:6px 0 0; padding:0; display:flex; flex-wrap:wrap; gap:6px}
+.preview-list li{background:var(--sunk); color:var(--ink); border-radius:6px; padding:3px 8px; max-width:100%; overflow-wrap:anywhere}
+.preview-list b{font-family:var(--font-mono); font-size:12px; font-weight:500; margin-right:4px}
+.copy-area{min-height:200px}
+.label-row{display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap}
+.label-row .btn{margin-right:-11px}
+.picker{border:1px solid var(--line); border-radius:10px; background:var(--bg); padding:8px; display:flex; flex-direction:column; gap:6px}
+.picker input[type="text"]{background:var(--surface)}
+.picker-list{list-style:none; margin:0; padding:0; max-height:240px; overflow:auto; display:flex; flex-direction:column; gap:4px}
+.picker-list li{display:flex; align-items:stretch; gap:4px}
+.pick{flex:1; min-width:0; display:flex; align-items:baseline; justify-content:space-between; gap:12px; text-align:left; background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:9px 11px; cursor:pointer}
+.pick:hover{border-color:var(--accent)}
+.pick-name{font-weight:600; min-width:0; overflow-wrap:anywhere}
+.pick-meta{font-family:var(--font-mono); font-size:12px; color:var(--muted); white-space:nowrap}
+.pick-del{flex:none; min-width:40px; display:grid; place-items:center; border:1px solid transparent; background:transparent; border-radius:8px; color:var(--muted); cursor:pointer; font-size:12px; font-weight:600; padding:0 8px}
+.pick-del:hover{color:var(--danger); border-color:var(--line)}
+.pick-del.armed{color:var(--danger); border-color:var(--danger)}
+.pick-del svg{width:16px; height:16px}
+.picker-empty{margin:4px 2px; font-size:13px; color:var(--muted)}
+
+/* Meldung */
+.toast{position:fixed; left:50%; bottom:calc(20px + env(safe-area-inset-bottom, 0px)); transform:translate(-50%, 12px); background:var(--ink); color:var(--bg); padding:10px 16px; border-radius:10px; font-size:14px; font-weight:500; opacity:0; pointer-events:none; max-width:calc(100% - 32px); z-index:20; transition:opacity .2s, transform .2s}
+.toast.show{opacity:1; transform:translate(-50%, 0)}
+@media (prefers-reduced-motion: reduce){ .toast{transition:none} }
+</style>
+</head>
+<body>
+<div class="app" id="app" data-view="plan">
+  <header class="top" id="top">
+    <div class="top-row">
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 11h19a9.5 9.5 0 0 1-19 0z" fill="currentColor"/><path d="M8.5 2.5c0 2 2 2 2 4.5M13.5 2.5c0 2 2 2 2 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Wochenteller
+      </div>
+      <span class="status" id="status" data-state="loading">Lädt …</span>
+    </div>
+    <div class="week-nav">
+      <button type="button" class="icon-btn" id="prev" aria-label="Vorherige Woche"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <div class="week-label"><strong id="kw">KW</strong><span id="range"></span></div>
+      <button type="button" class="icon-btn" id="next" aria-label="Nächste Woche"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button type="button" class="btn btn-quiet btn-sm" id="today" hidden>Diese Woche</button>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Ansicht">
+      <button type="button" role="tab" id="tab-plan" data-view="plan" aria-selected="true">Plan</button>
+      <button type="button" role="tab" id="tab-list" data-view="list" aria-selected="false">Einkaufsliste <span class="badge" id="badge" hidden>0</span></button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="plan" id="plan" aria-label="Wochenplan">
+      <div class="notice" id="examples" hidden>
+        <p>Einträge mit „Beispiel“ zeigen, wie der Plan funktioniert. Lösche sie, wenn du deinen eigenen Plan beginnst.</p>
+        <button type="button" class="btn btn-sm" id="clear-examples">Beispiele löschen</button>
+      </div>
+      <div class="notice" id="plan-hint" hidden><p>Für diese Woche ist noch nichts geplant. Tippe bei einem Tag auf „Mahlzeit eintragen“ und gib die Zutaten ein.</p></div>
+      <div id="days"></div>
+    </section>
+
+    <aside class="list-panel" id="list" aria-label="Einkaufsliste">
+      <div class="list-head">
+        <h2>Einkaufsliste</h2>
+        <span class="list-kw" id="list-kw"></span>
+      </div>
+      <div class="progress" aria-hidden="true"><span id="progress-bar"></span></div>
+      <p class="list-count" id="list-count"></p>
+      <ul class="items" id="items-open"></ul>
+      <h3 class="done-head" id="done-head" hidden>Erledigt</h3>
+      <ul class="items done" id="items-done"></ul>
+      <p class="list-empty" id="list-empty" hidden>Für diese Woche stehen noch keine Zutaten auf der Liste. Sobald du eine Mahlzeit mit Zutaten einträgst, erscheinen sie hier.</p>
+      <div class="list-actions" id="list-actions" hidden>
+        <button type="button" class="btn btn-sm" id="copy">Liste kopieren</button>
+        <button type="button" class="btn btn-quiet btn-sm" id="reset" hidden>Haken entfernen</button>
+      </div>
+      <p class="local-note" id="local-note" hidden>Die Daten bleiben auf diesem Gerät und in diesem Browser.</p>
+    </aside>
+  </main>
+</div>
+
+<dialog id="detail" aria-labelledby="d-title">
+  <div class="sheet">
+    <div class="sheet-head">
+      <div>
+        <p class="eyebrow" id="d-eyebrow"></p>
+        <h2 class="sheet-title" id="d-title"></h2>
+      </div>
+      <button type="button" class="icon-btn close-btn" data-close aria-label="Schließen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="sheet-body">
+      <p class="eyebrow">Zutaten</p>
+      <ul class="ing-list" id="d-ings"></ul>
+      <p class="empty-ing" id="d-empty" hidden>Für dieses Gericht sind keine Zutaten eingetragen.</p>
+      <p class="detail-note" id="d-note"><span id="d-note-text"></span><button type="button" class="btn btn-quiet btn-sm" id="d-goto">Zur Einkaufsliste</button></p>
+    </div>
+    <div class="sheet-foot">
+      <button type="button" class="btn btn-quiet btn-danger" id="d-delete">Löschen</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="d-edit">Bearbeiten</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="editor" aria-labelledby="e-title">
+  <form class="sheet" id="e-form" novalidate>
+    <div class="sheet-head">
+      <div><h2 class="sheet-title" id="e-title">Mahlzeit eintragen</h2></div>
+      <button type="button" class="icon-btn close-btn" data-close aria-label="Schließen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="sheet-body">
+      <div class="field">
+        <div class="label-row">
+          <label for="f-name">Gericht</label>
+          <button type="button" class="btn btn-quiet btn-sm" id="pick-btn" aria-expanded="false" aria-controls="picker" hidden>Gespeichertes Gericht wählen</button>
+        </div>
+        <div class="picker" id="picker" hidden>
+          <input type="text" id="p-search" autocomplete="off" placeholder="Gericht suchen" aria-label="Gespeicherte Gerichte durchsuchen">
+          <ul class="picker-list" id="p-list"></ul>
+          <p class="picker-empty" id="p-empty" hidden>Kein gespeichertes Gericht passt zur Suche.</p>
+        </div>
+        <input type="text" id="f-name" list="dish-list" autocomplete="off" placeholder="z. B. Linsensuppe">
+        <p class="field-error" id="f-name-error" hidden>Gib einen Namen für das Gericht ein.</p>
+        <p class="autofill" id="autofill" hidden></p>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="f-date">Tag</label>
+          <input type="date" id="f-date">
+        </div>
+        <div class="field">
+          <label for="f-slot">Mahlzeit</label>
+          <select id="f-slot">
+            <option value="frueh">Frühstück</option>
+            <option value="mittag">Mittag</option>
+            <option value="abend">Abend</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="f-ing">Zutaten</label>
+        <textarea id="f-ing" rows="7" spellcheck="false" placeholder="500 g Spaghetti&#10;2 Knoblauchzehen&#10;1 Dose gehackte Tomaten&#10;Salz"></textarea>
+        <p class="field-help">Eine Zutat pro Zeile: Menge, Einheit, Name. Gleiche Zutaten aus mehreren Gerichten werden auf der Einkaufsliste zusammengezählt.</p>
+      </div>
+      <div class="preview" id="preview" hidden>
+        <span id="preview-count"></span>
+        <ul class="preview-list" id="preview-list"></ul>
+      </div>
+      <p class="field-error" id="e-error" hidden></p>
+    </div>
+    <div class="sheet-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-close>Abbrechen</button>
+      <button type="submit" class="btn btn-primary" id="e-save">Speichern</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="copy-dlg" aria-labelledby="c-title">
+  <div class="sheet">
+    <div class="sheet-head">
+      <div><h2 class="sheet-title" id="c-title">Liste kopieren</h2></div>
+      <button type="button" class="icon-btn close-btn" data-close aria-label="Schließen"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="sheet-body">
+      <p class="field-help">Automatisches Kopieren ist hier nicht möglich. Der Text ist markiert, du kannst ihn manuell kopieren.</p>
+      <div class="field"><textarea id="c-text" class="copy-area" readonly aria-label="Einkaufsliste als Text"></textarea></div>
+    </div>
+  </div>
+</dialog>
+
+<datalist id="dish-list"></datalist>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------- Konstanten ---------- */
+  var SLOTS = { frueh: 'Frühstück', mittag: 'Mittag', abend: 'Abend' };
+  var SLOT_ORDER = { frueh: 0, mittag: 1, abend: 2 };
+  var DOW = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+  var UNITS = {
+    g: 'g', gr: 'g', gramm: 'g', kg: 'kg', kilo: 'kg', ml: 'ml', l: 'l', liter: 'l', cl: 'cl',
+    el: 'EL', 'esslöffel': 'EL', tl: 'TL', 'teelöffel': 'TL',
+    stk: 'Stk', 'stück': 'Stk', st: 'Stk',
+    prise: 'Prise', prisen: 'Prise', bund: 'Bund', dose: 'Dose', dosen: 'Dose',
+    pck: 'Pck.', pkg: 'Pck.', 'päckchen': 'Pck.', packung: 'Pck.', packungen: 'Pck.',
+    becher: 'Becher', tasse: 'Tasse', tassen: 'Tasse', scheibe: 'Scheibe', scheiben: 'Scheibe',
+    glas: 'Glas', 'gläser': 'Glas', handvoll: 'Handvoll', msp: 'Msp.', tube: 'Tube', kopf: 'Kopf',
+    stange: 'Stange', stangen: 'Stange', zehe: 'Zehe', zehen: 'Zehe', blatt: 'Blatt', 'blätter': 'Blatt',
+    beutel: 'Beutel', flasche: 'Flasche', flaschen: 'Flasche'
+  };
+  var BASE = { g: ['g', 1], kg: ['g', 1000], ml: ['ml', 1], l: ['ml', 1000], cl: ['ml', 10] };
+  var FRAC = { '½': 0.5, '¼': 0.25, '¾': 0.75, '⅓': 1 / 3, '⅔': 2 / 3 };
+
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* egal */ } }
+
+  /* ---------- Datum ---------- */
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function iso(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function parseISO(s) { var p = String(s).split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); }
+  function addDays(d, n) { var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() + n); return x; }
+  function mondayOf(d) { var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); return addDays(x, -((x.getDay() + 6) % 7)); }
+  function isoWeek(d) {
+    var t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    var day = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - day);
+    var y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+    return Math.ceil(((t - y0) / 86400000 + 1) / 7);
+  }
+  var fmtMon = new Intl.DateTimeFormat('de-DE', { month: 'short' });
+  var fmtLong = new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+  function rangeLabel(start) {
+    var end = addDays(start, 6);
+    if (start.getMonth() === end.getMonth()) return start.getDate() + '.–' + end.getDate() + '. ' + fmtMon.format(end) + ' ' + end.getFullYear();
+    return start.getDate() + '. ' + fmtMon.format(start) + ' – ' + end.getDate() + '. ' + fmtMon.format(end) + ' ' + end.getFullYear();
+  }
+
+  /* ---------- Zutaten ---------- */
+  function fmtNum(n) { return (Math.round(n * 100) / 100).toLocaleString('de-DE', { maximumFractionDigits: 2 }); }
+  function parseLine(raw) {
+    var s = String(raw).replace(/^[\s\-–•*]+/, '').trim();
+    if (!s) return null;
+    var amount = null;
+    var m = s.match(/^(\d+\s*\/\s*\d+|\d+(?:[.,]\d+)?(?:\s*[-–]\s*\d+(?:[.,]\d+)?)?|[½¼¾⅓⅔])/);
+    if (m) {
+      var t = m[1];
+      if (FRAC[t] != null) amount = FRAC[t];
+      else if (t.indexOf('/') > -1) { var fr = t.split('/').map(function (x) { return parseFloat(x); }); amount = fr[1] ? fr[0] / fr[1] : null; }
+      else { amount = Math.max.apply(null, t.split(/[-–]/).map(function (x) { return parseFloat(x.replace(',', '.')); })); }
+      if (!isFinite(amount)) amount = null;
+      s = s.slice(t.length).trim();
+    }
+    var unit = '';
+    if (amount != null) {
+      var um = s.match(/^([A-Za-zÄÖÜäöüß]+)\.?(?:\s+([\s\S]*))?$/);
+      if (um && um[2] && um[2].trim()) {
+        var tok = um[1].toLowerCase();
+        if (UNITS[tok]) { unit = UNITS[tok]; s = um[2].trim(); }
+      }
+    }
+    if (!s) return null;
+    return { amount: amount, unit: unit, name: s };
+  }
+  function parseAll(text) { return String(text || '').split(/\r?\n/).map(parseLine).filter(Boolean); }
+  function qtyText(i) { if (i.amount == null) return ''; return fmtNum(i.amount) + (i.unit ? ' ' + i.unit : ''); }
+  function ingToLine(i) { return [i.amount != null ? fmtNum(i.amount) : '', i.unit || '', i.name || ''].filter(Boolean).join(' '); }
+  function normName(s) { return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+  function baseOf(u) { if (!u || u === 'Stk') return ['', 1]; return BASE[u] || [u, 1]; }
+
+  /* ---------- Zustand ---------- */
+  var savedView = lsGet('wochenteller.view');
+  var state = {
+    meals: [],
+    dishes: [],
+    checks: new Set(),
+    weekStart: mondayOf(new Date()),
+    view: savedView === 'list' ? 'list' : 'plan',
+    mode: 'loading',
+    canWrite: true,
+    writeKnown: false,
+    loaded: false
+  };
+  var store = null;
+  var resolveStore;
+  var storeReady = new Promise(function (r) { resolveStore = r; });
+  var unsubMeals = null, unsubChecks = null, unsubDishes = null, mealRetries = 0;
+
+  function hash(str) {
+    var h1 = 0x811c9dc5, h2 = 5381;
+    for (var i = 0; i < str.length; i++) {
+      var c = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 16777619) >>> 0;
+      h2 = (Math.imul(h2, 33) + c) >>> 0;
+    }
+    return h1.toString(36) + h2.toString(36);
+  }
+  function checkId(week, key) { return 'w' + week + '-' + hash(key); }
+
+  /* ---------- Speicher: Cloud (db) ---------- */
+  function withRetry(fn) {
+    return fn().catch(function (e) {
+      if (e && e.code === 'unavailable') {
+        return new Promise(function (r) { setTimeout(r, 300 + Math.random() * 500); }).then(fn);
+      }
+      throw e;
+    });
+  }
+  var chains = new Map();
+  function serial(id, fn) {
+    var prev = chains.get(id) || Promise.resolve();
+    var p = prev.catch(function () {}).then(function () { return withRetry(fn); });
+    chains.set(id, p);
+    return p;
+  }
+  function cloudStore(db) {
+    var meals = db.collection('meals');
+    var checks = db.collection('checks');
+    var dishes = db.collection('dishes');
+    return {
+      subscribeMeals: function (cb, err) {
+        return meals.onSnapshot(function (s) {
+          cb(s.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); }));
+        }, err);
+      },
+      saveMeal: function (id, body) {
+        var ref = meals.doc(id);
+        return serial('meals/' + id, function () { return ref.set(body); });
+      },
+      deleteMeal: function (id) { return serial('meals/' + id, function () { return meals.doc(id).delete(); }); },
+      subscribeDishes: function (cb, err) {
+        return dishes.onSnapshot(function (s) {
+          cb(s.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); }));
+        }, err);
+      },
+      saveDish: function (id, body) { return serial('dishes/' + id, function () { return dishes.doc(id).set(body); }); },
+      deleteDish: function (id) { return serial('dishes/' + id, function () { return dishes.doc(id).delete(); }); },
+      subscribeChecks: function (week, cb, err) {
+        return checks.where('week', '==', week).onSnapshot(function (s) {
+          cb(s.docs.map(function (d) { return d.data(); }));
+        }, err);
+      },
+      setCheck: function (week, key, on) {
+        var id = checkId(week, key);
+        return serial('checks/' + id, function () {
+          return on ? checks.doc(id).set({ week: week, key: key, checked: true }) : checks.doc(id).delete();
+        });
+      }
+    };
+  }
+
+  /* ---------- Speicher: nur lokal ---------- */
+  function localStore() {
+    var KEY = 'wochenteller.v1';
+    var data = { meals: {}, checks: {}, dishes: {} };
+    try {
+      var raw = lsGet(KEY);
+      if (raw) { var p = JSON.parse(raw); if (p && typeof p === 'object') { data.meals = p.meals || {}; data.checks = p.checks || {}; data.dishes = p.dishes || {}; } }
+    } catch (e) { /* leer starten */ }
+    var mealL = new Set(), checkL = new Map(), dishL = new Set();
+    function emitDishes() {
+      var list = Object.keys(data.dishes).map(function (id) { return Object.assign({ id: id }, data.dishes[id]); });
+      dishL.forEach(function (cb) { cb(list); });
+    }
+    function persist() { lsSet(KEY, JSON.stringify(data)); }
+    function emitMeals() {
+      var list = Object.keys(data.meals).map(function (id) { return Object.assign({ id: id }, data.meals[id]); });
+      mealL.forEach(function (cb) { cb(list); });
+    }
+    function emitChecks() {
+      checkL.forEach(function (week, cb) {
+        cb(Object.keys(data.checks).map(function (k) { return data.checks[k]; }).filter(function (c) { return c.week === week; }));
+      });
+    }
+    return {
+      subscribeMeals: function (cb) { mealL.add(cb); setTimeout(emitMeals, 0); return function () { mealL.delete(cb); }; },
+      saveMeal: function (id, body) {
+        id = id || ('m' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
+        data.meals[id] = body; persist(); emitMeals(); return Promise.resolve(id);
+      },
+      deleteMeal: function (id) { delete data.meals[id]; persist(); emitMeals(); return Promise.resolve(); },
+      subscribeDishes: function (cb) { dishL.add(cb); setTimeout(emitDishes, 0); return function () { dishL.delete(cb); }; },
+      saveDish: function (id, body) { data.dishes[id] = body; persist(); emitDishes(); return Promise.resolve(); },
+      deleteDish: function (id) { delete data.dishes[id]; persist(); emitDishes(); return Promise.resolve(); },
+      subscribeChecks: function (week, cb) { checkL.set(cb, week); setTimeout(emitChecks, 0); return function () { checkL.delete(cb); }; },
+      setCheck: function (week, key, on) {
+        var id = checkId(week, key);
+        if (on) data.checks[id] = { week: week, key: key, checked: true }; else delete data.checks[id];
+        persist(); emitChecks(); return Promise.resolve();
+      }
+    };
+  }
+
+  /* ---------- Fehlertexte ---------- */
+  function writeError(e) {
+    var c = e && e.code;
+    if (c === 'invalid_argument') {
+      if (state.mode === 'cloud' && !state.writeKnown) { state.canWrite = false; state.mode = 'readonly'; renderAll(); }
+      return 'Nicht gespeichert: Für diesen Plan hast du nur Leserechte.';
+    }
+    if (c === 'quota_exceeded') return 'Nicht gespeichert: Der Speicher ist voll. Lösche alte Mahlzeiten und versuche es erneut.';
+    if (c === 'resource_exhausted') return 'Zu viele Änderungen in kurzer Zeit. Warte einen Moment und versuche es erneut.';
+    if (c === 'revoked' || c === 'not_granted' || c === 'capability_disabled' || c === 'capability_removed') return 'Speichern ist in dieser Ansicht nicht möglich.';
+    return 'Nicht gespeichert: Die Verbindung ist unterbrochen. Versuche es erneut.';
+  }
+  var toastTimer;
+  function toast(msg) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove('show'); }, 3200);
+  }
+
+  /* ---------- Sofort anzeigen, im Hintergrund speichern ---------- */
+  var serverMeals = [], serverDishes = [];
+  var pendingMeals = new Map(), pendingDishes = new Map();
+  var inflight = 0;
+  function newId(prefix) { return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  function mergePending(list, pending) {
+    var map = new Map();
+    list.forEach(function (x) { if (x && x.id) map.set(x.id, x); });
+    pending.forEach(function (entry, id) {
+      if (entry.v === null) map.delete(id); else map.set(id, Object.assign({ id: id }, entry.v));
+    });
+    return Array.from(map.values());
+  }
+  function recompute() {
+    state.meals = mergePending(serverMeals, pendingMeals).filter(function (m) { return typeof m.date === 'string' && m.name; });
+    state.dishes = mergePending(serverDishes, pendingDishes).filter(function (d) { return d.name; });
+  }
+  function track(p) {
+    inflight++;
+    renderStatus();
+    return p.then(function (v) { inflight--; renderStatus(); return v; }, function (e) { inflight--; renderStatus(); throw e; });
+  }
+  function optimistic(pending, id, value, run) {
+    var entry = { v: value };
+    pending.set(id, entry);
+    recompute();
+    renderAll();
+    return track(storeReady.then(run)).then(function () {
+      if (pending.get(id) === entry) pending.delete(id);
+      recompute();
+      renderAll();
+    }, function (e) {
+      if (pending.get(id) === entry) pending.delete(id);
+      recompute();
+      renderAll();
+      throw e;
+    });
+  }
+
+  /* ---------- Lokale Kopie für schnellen Start ---------- */
+  var CACHE_KEY = 'wochenteller.cache.v1';
+  var cacheTimer;
+  function loadCache() {
+    try {
+      var raw = lsGet(CACHE_KEY);
+      if (!raw) return;
+      var c = JSON.parse(raw);
+      if (c && Array.isArray(c.meals)) serverMeals = c.meals;
+      if (c && Array.isArray(c.dishes)) serverDishes = c.dishes;
+      recompute();
+      state.loaded = state.meals.length > 0;
+    } catch (e) { /* ohne Kopie starten */ }
+  }
+  function saveCache() {
+    if (state.mode !== 'cloud' && state.mode !== 'readonly') return;
+    clearTimeout(cacheTimer);
+    cacheTimer = setTimeout(function () {
+      lsSet(CACHE_KEY, JSON.stringify({ meals: serverMeals, dishes: serverDishes, savedAt: Date.now() }));
+    }, 300);
+  }
+
+  /* ---------- Abos ---------- */
+  function subscribeMeals() {
+    if (!store) return;
+    if (unsubMeals) unsubMeals();
+    unsubMeals = store.subscribeMeals(function (list) {
+      serverMeals = list;
+      recompute();
+      state.loaded = true;
+      saveCache();
+      renderAll();
+    }, function (e) {
+      if (e && e.code === 'unavailable' && mealRetries < 3) { mealRetries++; setTimeout(subscribeMeals, 1500); return; }
+      state.mode = 'error'; renderStatus();
+    });
+  }
+  function subscribeDishes() {
+    if (!store) return;
+    if (unsubDishes) unsubDishes();
+    unsubDishes = store.subscribeDishes(function (list) {
+      serverDishes = list;
+      recompute();
+      saveCache();
+      renderAll();
+    }, function () { /* Sammlung bleibt leer, Planen funktioniert weiter */ });
+  }
+  function subscribeChecks() {
+    if (!store) return;
+    if (unsubChecks) unsubChecks();
+    var week = iso(state.weekStart);
+    state.checks = new Set();
+    unsubChecks = store.subscribeChecks(week, function (list) {
+      if (week !== iso(state.weekStart)) return;
+      state.checks = new Set(list.filter(function (c) { return c && c.checked; }).map(function (c) { return c.key; }));
+      renderList();
+    }, function () { /* Liste bleibt mit lokalem Stand nutzbar */ });
+  }
+
+  /* ---------- Ableitungen ---------- */
+  function weekMeals() {
+    var start = iso(state.weekStart), end = iso(addDays(state.weekStart, 6));
+    return state.meals.filter(function (m) { return m.date >= start && m.date <= end; });
+  }
+  function shopping() {
+    var map = new Map();
+    weekMeals().forEach(function (m) {
+      (Array.isArray(m.ingredients) ? m.ingredients : []).forEach(function (ing) {
+        if (!ing) return;
+        var nm = normName(ing.name);
+        if (!nm) return;
+        var b = baseOf(ing.unit);
+        var key = nm + '|' + b[0];
+        var e = map.get(key);
+        if (!e) { e = { key: key, name: String(ing.name).trim(), unit: b[0], amount: 0, hasAmount: false, open: false, dishes: [] }; map.set(key, e); }
+        if (typeof ing.amount === 'number' && isFinite(ing.amount)) { e.amount += ing.amount * b[1]; e.hasAmount = true; }
+        else e.open = true;
+        if (e.dishes.indexOf(m.name) < 0) e.dishes.push(m.name);
+      });
+    });
+    return Array.from(map.values()).sort(function (a, b) { return a.name.localeCompare(b.name, 'de'); });
+  }
+  function itemQty(e) {
+    if (!e.hasAmount) return '';
+    var a = e.amount, u = e.unit;
+    if (u === 'g' && a >= 1000) { a /= 1000; u = 'kg'; }
+    else if (u === 'ml' && a >= 1000) { a /= 1000; u = 'l'; }
+    return fmtNum(a) + (u ? ' ' + u : '');
+  }
+  function knownDishes() {
+    var map = new Map();
+    state.dishes.slice().sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); }).forEach(function (d) {
+      var k = normName(d.name);
+      if (k && !map.has(k)) map.set(k, d);
+    });
+    return map;
+  }
+  function dishId(name) { return 'd' + hash(normName(name)); }
+
+  /* ---------- Darstellung ---------- */
+  function renderStatus() {
+    var el = $('status');
+    var labels = { loading: 'Lädt …', cloud: 'Gespeichert', local: 'Auf diesem Gerät', readonly: 'Nur lesen', error: 'Keine Verbindung' };
+    var label = labels[state.mode] || '';
+    if (inflight > 0 && (state.mode === 'cloud' || state.mode === 'readonly')) label = 'Speichert …';
+    el.dataset.state = state.mode;
+    el.textContent = label;
+    $('local-note').hidden = state.mode !== 'local';
+  }
+  function renderHeader() {
+    $('kw').textContent = 'KW ' + isoWeek(state.weekStart);
+    $('range').textContent = rangeLabel(state.weekStart);
+    $('today').hidden = iso(state.weekStart) === iso(mondayOf(new Date()));
+    $('app').dataset.view = state.view;
+    $('tab-plan').setAttribute('aria-selected', String(state.view === 'plan'));
+    $('tab-list').setAttribute('aria-selected', String(state.view === 'list'));
+  }
+  function mealCard(m) {
+    var n = Array.isArray(m.ingredients) ? m.ingredients.length : 0;
+    return '<button type="button" class="meal" data-meal="' + esc(m.id) + '">' +
+      '<span class="meal-slot">' + esc(SLOTS[m.slot] || 'Mahlzeit') + (m.example ? '<span class="ex-tag">Beispiel</span>' : '') + '</span>' +
+      '<span class="meal-name">' + esc(m.name) + '</span>' +
+      '<span class="meal-meta">' + (n ? n + (n === 1 ? ' Zutat' : ' Zutaten') : 'ohne Zutaten') + '</span>' +
+      '</button>';
+  }
+  function renderPlan() {
+    var todayIso = iso(new Date());
+    var html = '';
+    for (var i = 0; i < 7; i++) {
+      var d = addDays(state.weekStart, i), di = iso(d);
+      var meals = state.meals.filter(function (m) { return m.date === di; }).sort(function (a, b) {
+        return ((SLOT_ORDER[a.slot] != null ? SLOT_ORDER[a.slot] : 9) - (SLOT_ORDER[b.slot] != null ? SLOT_ORDER[b.slot] : 9)) || ((a.createdAt || 0) - (b.createdAt || 0));
+      });
+      var cls = 'day' + (di === todayIso ? ' is-today' : '') + (di < todayIso ? ' is-past' : '');
+      html += '<section class="' + cls + '" aria-label="' + esc(fmtLong.format(d)) + '">' +
+        '<div class="day-head"><span class="dow">' + DOW[i] + '</span><span class="dnum">' + d.getDate() + '</span><span class="dmon">' + esc(fmtMon.format(d)) + '</span>' +
+        (di === todayIso ? '<span class="today-tag">Heute</span>' : '') + '</div>' +
+        '<div class="day-body">' + meals.map(mealCard).join('') +
+        (state.canWrite ? '<button type="button" class="add-btn" data-add="' + di + '">+ Mahlzeit eintragen</button>' : (meals.length ? '' : '<p class="day-empty">Nichts geplant</p>')) +
+        '</div></section>';
+    }
+    $('days').innerHTML = html;
+    var isEx = function (x) { return x.example; };
+    $('examples').hidden = !(state.canWrite && (state.meals.some(isEx) || state.dishes.some(isEx)));
+    $('plan-hint').hidden = !(state.loaded && state.canWrite && weekMeals().length === 0);
+    var dl = '';
+    knownDishes().forEach(function (m) { dl += '<option value="' + esc(m.name) + '"></option>'; });
+    $('dish-list').innerHTML = dl;
+  }
+  function itemHtml(e) {
+    var checked = state.checks.has(e.key);
+    var parts = [];
+    if (!e.hasAmount) parts.push('nach Bedarf');
+    else if (e.open) parts.push('zusätzlich nach Bedarf');
+    parts.push('für ' + e.dishes.join(', '));
+    return '<li class="item"><label>' +
+      '<input type="checkbox" data-key="' + esc(e.key) + '"' + (checked ? ' checked' : '') + (state.canWrite ? '' : ' disabled') + '>' +
+      '<span class="qty">' + esc(itemQty(e)) + '</span>' +
+      '<span class="iname">' + esc(e.name) + '</span>' +
+      '<span class="ifor">' + esc(parts.join(' · ')) + '</span>' +
+      '</label></li>';
+  }
+  function renderList() {
+    var items = shopping();
+    var open = items.filter(function (e) { return !state.checks.has(e.key); });
+    var done = items.filter(function (e) { return state.checks.has(e.key); });
+    $('items-open').innerHTML = open.map(itemHtml).join('');
+    $('items-done').innerHTML = done.map(itemHtml).join('');
+    $('done-head').hidden = !done.length;
+    $('done-head').textContent = 'Erledigt (' + done.length + ')';
+    $('list-empty').hidden = items.length > 0;
+    $('list-actions').hidden = !items.length;
+    $('copy').hidden = !open.length;
+    $('reset').hidden = !done.length || !state.canWrite;
+    $('progress-bar').style.width = items.length ? (done.length / items.length * 100) + '%' : '0';
+    $('list-count').textContent = items.length ? (open.length + ' offen · ' + done.length + ' erledigt') : '';
+    $('list-kw').textContent = 'KW ' + isoWeek(state.weekStart);
+    $('badge').textContent = open.length;
+    $('badge').hidden = !open.length;
+  }
+  function renderAll() { renderStatus(); renderHeader(); renderPlan(); renderList(); renderPicker(); }
+
+  /* ---------- Detailansicht ---------- */
+  var detailId = null, delArmed = false, delTimer;
+  function disarmDelete() { delArmed = false; clearTimeout(delTimer); $('d-delete').textContent = 'Löschen'; }
+  function openDetail(id) {
+    var m = state.meals.find(function (x) { return x.id === id; });
+    if (!m) return;
+    detailId = id;
+    disarmDelete();
+    var date = parseISO(m.date);
+    $('d-eyebrow').textContent = fmtLong.format(date) + ' · ' + (SLOTS[m.slot] || 'Mahlzeit');
+    $('d-title').textContent = m.name;
+    var ings = Array.isArray(m.ingredients) ? m.ingredients : [];
+    $('d-ings').innerHTML = ings.map(function (i) {
+      return '<li><span class="qty">' + esc(qtyText(i)) + '</span><span>' + esc(i.name) + '</span></li>';
+    }).join('');
+    $('d-empty').hidden = ings.length > 0;
+    $('d-note').hidden = ings.length === 0;
+    $('d-note-text').textContent = 'Diese Zutaten stehen auf der Einkaufsliste für KW ' + isoWeek(date) + '.';
+    $('d-delete').hidden = !state.canWrite;
+    $('d-edit').hidden = !state.canWrite;
+    $('detail').showModal();
+  }
+
+  /* ---------- Formular ---------- */
+  var editing = null;
+  function guessSlot(dateIso) {
+    var used = state.meals.filter(function (m) { return m.date === dateIso; }).map(function (m) { return m.slot; });
+    var order = ['abend', 'mittag', 'frueh'];
+    for (var i = 0; i < order.length; i++) if (used.indexOf(order[i]) < 0) return order[i];
+    return 'abend';
+  }
+  function renderPreview() {
+    var list = parseAll($('f-ing').value);
+    $('preview').hidden = !list.length;
+    $('preview-count').textContent = 'Erkannt: ' + list.length + (list.length === 1 ? ' Zutat' : ' Zutaten');
+    $('preview-list').innerHTML = list.map(function (i) {
+      var q = qtyText(i);
+      return '<li>' + (q ? '<b>' + esc(q) + '</b>' : '') + esc(i.name) + '</li>';
+    }).join('');
+  }
+  function openEditor(opts) {
+    editing = opts.meal || null;
+    $('e-title').textContent = editing ? 'Mahlzeit bearbeiten' : 'Mahlzeit eintragen';
+    $('f-name').value = editing ? editing.name : '';
+    $('f-date').value = editing ? editing.date : opts.date;
+    $('f-slot').value = editing ? (SLOTS[editing.slot] ? editing.slot : 'abend') : guessSlot(opts.date);
+    $('f-ing').value = editing ? (editing.ingredients || []).map(ingToLine).join('\n') : '';
+    $('f-name-error').hidden = true;
+    $('e-error').hidden = true;
+    $('autofill').hidden = true;
+    $('e-save').disabled = false;
+    togglePicker(false);
+    renderPicker();
+    renderPreview();
+    $('editor').showModal();
+    $('f-name').focus();
+  }
+  /* Auswahl gespeicherter Gerichte */
+  var pickDelArmed = null, pickDelTimer;
+  var X_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  function sortedDishes() {
+    return Array.from(knownDishes().values()).sort(function (a, b) { return a.name.localeCompare(b.name, 'de'); });
+  }
+  function filteredDishes() {
+    var q = normName($('p-search').value);
+    var all = sortedDishes();
+    return { all: all, shown: q ? all.filter(function (d) { return normName(d.name).indexOf(q) > -1; }) : all };
+  }
+  function renderPicker() {
+    var f = filteredDishes();
+    $('pick-btn').hidden = !f.all.length;
+    if (!f.all.length) togglePicker(false);
+    $('p-list').innerHTML = f.shown.map(function (d) {
+      var n = Array.isArray(d.ingredients) ? d.ingredients.length : 0;
+      var armed = pickDelArmed === d.id;
+      return '<li><button type="button" class="pick" data-pick="' + esc(d.id) + '">' +
+        '<span class="pick-name">' + esc(d.name) + '</span>' +
+        '<span class="pick-meta">' + (n ? n + (n === 1 ? ' Zutat' : ' Zutaten') : 'ohne Zutaten') + (d.example ? ' · Beispiel' : '') + '</span></button>' +
+        (state.canWrite ? '<button type="button" class="pick-del' + (armed ? ' armed' : '') + '" data-del="' + esc(d.id) + '" aria-label="' + esc('„' + d.name + '“ aus der Sammlung entfernen') + '">' + (armed ? 'Entfernen?' : X_ICON) + '</button>' : '') +
+        '</li>';
+    }).join('');
+    $('p-empty').hidden = !(f.all.length && !f.shown.length);
+  }
+  function togglePicker(force) {
+    var open = typeof force === 'boolean' ? force : $('picker').hidden;
+    $('picker').hidden = !open;
+    $('pick-btn').setAttribute('aria-expanded', String(open));
+    $('pick-btn').textContent = open ? 'Auswahl schließen' : 'Gespeichertes Gericht wählen';
+    if (open) { $('p-search').value = ''; pickDelArmed = null; renderPicker(); }
+  }
+  function pickDish(id) {
+    var d = state.dishes.find(function (x) { return x.id === id; });
+    if (!d) return;
+    var ings = Array.isArray(d.ingredients) ? d.ingredients : [];
+    $('f-name').value = d.name;
+    $('f-name-error').hidden = true;
+    $('f-ing').value = ings.map(ingToLine).join('\n');
+    $('autofill').textContent = ings.length
+      ? 'Zutaten von „' + d.name + '“ übernommen. Du kannst sie anpassen.'
+      : '„' + d.name + '“ übernommen. Für dieses Gericht sind keine Zutaten gespeichert.';
+    $('autofill').hidden = false;
+    togglePicker(false);
+    renderPreview();
+  }
+  function removeDish(id) {
+    if (pickDelArmed !== id) {
+      pickDelArmed = id;
+      renderPicker();
+      clearTimeout(pickDelTimer);
+      pickDelTimer = setTimeout(function () { pickDelArmed = null; renderPicker(); }, 4000);
+      return;
+    }
+    clearTimeout(pickDelTimer);
+    pickDelArmed = null;
+    optimistic(pendingDishes, id, null, function (s) { return s.deleteDish(id); }).catch(function (e) {
+      $('e-error').textContent = writeError(e);
+      $('e-error').hidden = false;
+    });
+  }
+
+  function tryAutofill() {
+    if ($('f-ing').value.trim()) return;
+    var m = knownDishes().get(normName($('f-name').value));
+    if (!m || !Array.isArray(m.ingredients) || !m.ingredients.length) return;
+    $('f-ing').value = m.ingredients.map(ingToLine).join('\n');
+    $('autofill').textContent = 'Zutaten von „' + m.name + '“ übernommen. Du kannst sie anpassen.';
+    $('autofill').hidden = false;
+    renderPreview();
+  }
+  function saveEditor(ev) {
+    ev.preventDefault();
+    var name = $('f-name').value.trim();
+    if (!name) { $('f-name-error').hidden = false; $('f-name').focus(); return; }
+    var date = $('f-date').value || (editing ? editing.date : iso(new Date()));
+    var body = {
+      date: date,
+      slot: $('f-slot').value,
+      name: name,
+      ingredients: parseAll($('f-ing').value),
+      createdAt: editing && editing.createdAt ? editing.createdAt : Date.now()
+    };
+    var isNew = !editing;
+    var id = editing ? editing.id : newId('m');
+    var did = dishId(name);
+    var dish = { name: name, ingredients: body.ingredients, updatedAt: Date.now() };
+    var draft = { meal: editing, name: name, date: date, slot: body.slot, ing: $('f-ing').value };
+    $('editor').close();
+    var ws = mondayOf(parseISO(date));
+    if (iso(ws) !== iso(state.weekStart)) { state.weekStart = ws; subscribeChecks(); }
+    toast(isNew ? 'Mahlzeit eingetragen' : 'Änderungen gespeichert');
+    optimistic(pendingMeals, id, body, function (s) { return s.saveMeal(id, body); }).catch(function (e) {
+      reopenDraft(draft, writeError(e));
+    });
+    optimistic(pendingDishes, did, dish, function (s) { return s.saveDish(did, dish); }).catch(function () { /* fehlt dann nur in der Sammlung */ });
+  }
+  function reopenDraft(d, msg) {
+    if (document.querySelector('dialog[open]')) { toast(msg); return; }
+    openEditor(d.meal ? { meal: d.meal } : { date: d.date });
+    $('f-name').value = d.name;
+    $('f-date').value = d.date;
+    $('f-slot').value = d.slot;
+    $('f-ing').value = d.ing;
+    renderPreview();
+    $('e-error').textContent = msg;
+    $('e-error').hidden = false;
+  }
+
+  /* ---------- Aktionen ---------- */
+  function setWeek(d) { state.weekStart = mondayOf(d); subscribeChecks(); renderAll(); }
+  function setView(v) { state.view = v; lsSet('wochenteller.view', v); renderHeader(); }
+  function toggleCheck(key, on) {
+    if (!state.canWrite) { renderList(); return; }
+    if (on) state.checks.add(key); else state.checks.delete(key);
+    renderList();
+    var week = iso(state.weekStart);
+    track(storeReady.then(function (s) { return s.setCheck(week, key, on); })).catch(function (e) {
+      toast(writeError(e));
+      if (week === iso(state.weekStart)) { if (on) state.checks.delete(key); else state.checks.add(key); renderList(); }
+    });
+  }
+  function listText() {
+    var open = shopping().filter(function (e) { return !state.checks.has(e.key); });
+    return 'Einkaufsliste KW ' + isoWeek(state.weekStart) + '\n' + open.map(function (e) {
+      return '- ' + [itemQty(e), e.name].filter(Boolean).join(' ');
+    }).join('\n');
+  }
+  function copyList() {
+    var text = listText();
+    var fallback = function () {
+      $('c-text').value = text;
+      $('copy-dlg').showModal();
+      $('c-text').focus();
+      $('c-text').select();
+    };
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) { fallback(); return; }
+      navigator.clipboard.writeText(text).then(function () { toast('Liste kopiert'); }, fallback);
+    } catch (e) { fallback(); }
+  }
+  function resetChecks() {
+    var week = iso(state.weekStart);
+    var keys = Array.from(state.checks);
+    state.checks = new Set();
+    renderList();
+    toast('Haken entfernt');
+    track(storeReady.then(function (s) {
+      return keys.reduce(function (p, k) { return p.then(function () { return s.setCheck(week, k, false); }); }, Promise.resolve());
+    })).catch(function (e) { toast(writeError(e)); });
+  }
+  var exArmed = false, exTimer;
+  function clearExamples() {
+    var btn = $('clear-examples');
+    if (!exArmed) {
+      exArmed = true; btn.textContent = 'Wirklich löschen?';
+      clearTimeout(exTimer);
+      exTimer = setTimeout(function () { exArmed = false; btn.textContent = 'Beispiele löschen'; }, 4000);
+      return;
+    }
+    clearTimeout(exTimer); exArmed = false; btn.textContent = 'Beispiele löschen';
+    var ids = state.meals.filter(function (m) { return m.example; }).map(function (m) { return m.id; });
+    var dishIds = state.dishes.filter(function (d) { return d.example; }).map(function (d) { return d.id; });
+    toast('Beispiele gelöscht');
+    Promise.all(ids.map(function (id) { return optimistic(pendingMeals, id, null, function (s) { return s.deleteMeal(id); }); })
+      .concat(dishIds.map(function (id) { return optimistic(pendingDishes, id, null, function (s) { return s.deleteDish(id); }); })))
+      .catch(function (e) { toast(writeError(e)); });
+  }
+
+  /* ---------- Ereignisse ---------- */
+  $('prev').addEventListener('click', function () { setWeek(addDays(state.weekStart, -7)); });
+  $('next').addEventListener('click', function () { setWeek(addDays(state.weekStart, 7)); });
+  $('today').addEventListener('click', function () { setWeek(new Date()); });
+  $('tab-plan').addEventListener('click', function () { setView('plan'); });
+  $('tab-list').addEventListener('click', function () { setView('list'); });
+  $('days').addEventListener('click', function (e) {
+    var add = e.target.closest('[data-add]');
+    if (add) { openEditor({ date: add.dataset.add }); return; }
+    var meal = e.target.closest('[data-meal]');
+    if (meal) openDetail(meal.dataset.meal);
+  });
+  document.querySelector('.list-panel').addEventListener('change', function (e) {
+    var cb = e.target.closest('input[data-key]');
+    if (cb) toggleCheck(cb.dataset.key, cb.checked);
+  });
+  $('copy').addEventListener('click', copyList);
+  $('reset').addEventListener('click', resetChecks);
+  $('clear-examples').addEventListener('click', clearExamples);
+
+  $('d-edit').addEventListener('click', function () {
+    var m = state.meals.find(function (x) { return x.id === detailId; });
+    $('detail').close();
+    if (m) openEditor({ meal: m });
+  });
+  $('d-delete').addEventListener('click', function () {
+    if (!delArmed) {
+      delArmed = true; $('d-delete').textContent = 'Wirklich löschen?';
+      clearTimeout(delTimer);
+      delTimer = setTimeout(disarmDelete, 4000);
+      return;
+    }
+    var id = detailId;
+    disarmDelete();
+    $('detail').close();
+    toast('Mahlzeit gelöscht');
+    optimistic(pendingMeals, id, null, function (s) { return s.deleteMeal(id); }).catch(function (e) { toast(writeError(e)); });
+  });
+  $('d-goto').addEventListener('click', function () {
+    $('detail').close();
+    setView('list');
+    var panel = $('list');
+    if (panel.scrollIntoView) panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  });
+
+  $('e-form').addEventListener('submit', saveEditor);
+  $('pick-btn').addEventListener('click', function () { togglePicker(); });
+  $('p-search').addEventListener('input', renderPicker);
+  $('p-search').addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    var first = filteredDishes().shown[0];
+    if (first) pickDish(first.id);
+  });
+  $('p-list').addEventListener('click', function (e) {
+    var del = e.target.closest('[data-del]');
+    if (del) { removeDish(del.dataset.del); return; }
+    var p = e.target.closest('[data-pick]');
+    if (p) pickDish(p.dataset.pick);
+  });
+  $('f-name').addEventListener('input', function () { $('f-name-error').hidden = true; tryAutofill(); });
+  $('f-ing').addEventListener('input', function () { $('autofill').hidden = true; renderPreview(); });
+
+  Array.prototype.forEach.call(document.querySelectorAll('dialog'), function (dlg) {
+    dlg.addEventListener('click', function (e) {
+      if (e.target === dlg) { dlg.close(); return; }
+      if (e.target.closest('[data-close]')) dlg.close();
+    });
+  });
+
+  try {
+    var ro = new ResizeObserver(function () { document.documentElement.style.setProperty('--head-h', $('top').offsetHeight + 'px'); });
+    ro.observe($('top'));
+  } catch (e) { /* ohne Beobachter gilt der Standardwert */ }
+
+  /* ---------- Start ---------- */
+  loadCache();
+  renderAll();
+  (function init() {
+    var c = window.claude;
+    var useCap = function (name) {
+      try { return c && typeof c.use === 'function' ? Promise.resolve(c.use(name)).catch(function () { return null; }) : Promise.resolve(null); }
+      catch (e) { return Promise.resolve(null); }
+    };
+    Promise.all([useCap('db'), useCap('user')]).then(function (res) {
+      var db = res[0], user = res[1];
+      if (db) {
+        store = cloudStore(db);
+        state.mode = 'cloud';
+        var check = user && typeof user.can === 'function' ? Promise.resolve(user.can('data.write')).catch(function () { return null; }) : Promise.resolve(null);
+        return check.then(function (w) {
+          if (w === false) { state.canWrite = false; state.mode = 'readonly'; }
+          if (w === true) state.writeKnown = true;
+        });
+      }
+      store = localStore();
+      state.mode = 'local';
+    }).then(function () {
+      resolveStore(store);
+      subscribeMeals();
+      subscribeDishes();
+      subscribeChecks();
+      renderAll();
+    });
+  })();
+})();
+</script>
+<script>
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    navigator.serviceWorker.register('sw.js');
+  }
+</script>
+</body>
+</html>

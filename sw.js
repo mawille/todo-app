@@ -8,7 +8,8 @@ self.addEventListener('install', e => {
 });
 
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))));
+  // Nur eigene alte Caches löschen; der Wochenteller liegt auf derselben Domain.
+  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith('todos-') && k !== CACHE).map(k => caches.delete(k)))));
   self.clients.claim();
 });
 
