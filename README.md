@@ -17,3 +17,5 @@ Mahlzeitenplaner im Ordner `wochenteller/`: Gerichte pro Tag eintragen, Zutaten 
 **App öffnen:** https://mawille.github.io/todo-app/wochenteller/
 
 Zutaten eine pro Zeile eingeben, z. B. `500 g Spaghetti`. Gleiche Zutaten aus mehreren Gerichten werden auf der Einkaufsliste zusammengezählt.
+
+Sachen ohne Gericht (z. B. `Klopapier` oder `200 g Bacon`) direkt in der Einkaufsliste über das Eingabefeld hinzufügen. Sie gelten für die angezeigte Woche und lassen sich mit dem ✕ wieder entfernen.

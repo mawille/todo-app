@@ -130,7 +130,14 @@ button,input,select,textarea{font:inherit; color:inherit}
 .progress span{display:block; height:100%; width:0; background:var(--accent)}
 .list-count{margin:8px 0 2px; font-size:13px; color:var(--muted); font-variant-numeric:tabular-nums}
 .items{list-style:none; margin:0; padding:0}
-.item label{display:grid; grid-template-columns:20px 84px minmax(0,1fr); gap:2px 12px; align-items:baseline; padding:10px 0; border-bottom:1px dashed var(--line); cursor:pointer}
+.item{display:flex; align-items:center; gap:4px; border-bottom:1px dashed var(--line)}
+.item label{flex:1; min-width:0; display:grid; grid-template-columns:20px 84px minmax(0,1fr); gap:2px 12px; align-items:baseline; padding:10px 0; cursor:pointer}
+.item-del{flex:none; width:36px; height:36px; display:grid; place-items:center; border:1px solid transparent; background:transparent; border-radius:8px; color:var(--muted); cursor:pointer}
+.item-del:hover{color:var(--danger); border-color:var(--line)}
+.item-del svg{width:16px; height:16px}
+.add-item{display:flex; gap:8px; margin:12px 0 4px}
+.add-item input[type="text"]{flex:1}
+.add-item .btn{flex:none}
 .item input{width:18px; height:18px; margin:0; accent-color:var(--accent); align-self:center; cursor:pointer}
 .qty{font-family:var(--font-mono); font-size:13px; text-align:right; font-variant-numeric:tabular-nums; overflow-wrap:anywhere}
 .iname{font-weight:500; min-width:0; overflow-wrap:anywhere}
@@ -249,10 +256,14 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
       </div>
       <div class="progress" aria-hidden="true"><span id="progress-bar"></span></div>
       <p class="list-count" id="list-count"></p>
+      <form class="add-item" id="x-form" autocomplete="off" novalidate hidden>
+        <input type="text" id="x-name" placeholder="z. B. Klopapier" aria-label="Eigenen Eintrag zur Einkaufsliste hinzufügen">
+        <button type="submit" class="btn btn-primary">Hinzufügen</button>
+      </form>
       <ul class="items" id="items-open"></ul>
       <h3 class="done-head" id="done-head" hidden>Erledigt</h3>
       <ul class="items done" id="items-done"></ul>
-      <p class="list-empty" id="list-empty" hidden>Für diese Woche stehen noch keine Zutaten auf der Liste. Sobald du eine Mahlzeit mit Zutaten einträgst, erscheinen sie hier.</p>
+      <p class="list-empty" id="list-empty" hidden>Für diese Woche steht noch nichts auf der Liste. Zutaten aus eingetragenen Mahlzeiten erscheinen hier automatisch. Andere Dinge kannst du oben direkt hinzufügen.</p>
       <div class="list-actions" id="list-actions" hidden>
         <button type="button" class="btn btn-sm" id="copy">Liste kopieren</button>
         <button type="button" class="btn btn-quiet btn-sm" id="reset" hidden>Haken entfernen</button>
@@ -444,6 +455,7 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
   var state = {
     meals: [],
     dishes: [],
+    extras: [],
     checks: new Set(),
     weekStart: mondayOf(new Date()),
     view: savedView === 'list' ? 'list' : 'plan',
@@ -455,7 +467,7 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
   var store = null;
   var resolveStore;
   var storeReady = new Promise(function (r) { resolveStore = r; });
-  var unsubMeals = null, unsubChecks = null, unsubDishes = null, mealRetries = 0;
+  var unsubMeals = null, unsubChecks = null, unsubDishes = null, unsubExtras = null, mealRetries = 0;
 
   function hash(str) {
     var h1 = 0x811c9dc5, h2 = 5381;
@@ -488,7 +500,15 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
     var meals = db.collection('meals');
     var checks = db.collection('checks');
     var dishes = db.collection('dishes');
+    var extras = db.collection('extras');
     return {
+      subscribeExtras: function (week, cb, err) {
+        return extras.where('week', '==', week).onSnapshot(function (s) {
+          cb(s.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); }));
+        }, err);
+      },
+      saveExtra: function (id, body) { return serial('extras/' + id, function () { return extras.doc(id).set(body); }); },
+      deleteExtra: function (id) { return serial('extras/' + id, function () { return extras.doc(id).delete(); }); },
       subscribeMeals: function (cb, err) {
         return meals.onSnapshot(function (s) {
           cb(s.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); }));
@@ -523,12 +543,16 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
   /* ---------- Speicher: nur lokal ---------- */
   function localStore() {
     var KEY = 'wochenteller.v1';
-    var data = { meals: {}, checks: {}, dishes: {} };
+    var data = { meals: {}, checks: {}, dishes: {}, extras: {} };
     try {
       var raw = lsGet(KEY);
-      if (raw) { var p = JSON.parse(raw); if (p && typeof p === 'object') { data.meals = p.meals || {}; data.checks = p.checks || {}; data.dishes = p.dishes || {}; } }
+      if (raw) { var p = JSON.parse(raw); if (p && typeof p === 'object') { data.meals = p.meals || {}; data.checks = p.checks || {}; data.dishes = p.dishes || {}; data.extras = p.extras || {}; } }
     } catch (e) { /* leer starten */ }
-    var mealL = new Set(), checkL = new Map(), dishL = new Set();
+    var mealL = new Set(), checkL = new Map(), dishL = new Set(), extraL = new Map();
+    function emitExtras() {
+      var all = Object.keys(data.extras).map(function (id) { return Object.assign({ id: id }, data.extras[id]); });
+      extraL.forEach(function (week, cb) { cb(all.filter(function (x) { return x.week === week; })); });
+    }
     function emitDishes() {
       var list = Object.keys(data.dishes).map(function (id) { return Object.assign({ id: id }, data.dishes[id]); });
       dishL.forEach(function (cb) { cb(list); });
@@ -553,6 +577,9 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
       subscribeDishes: function (cb) { dishL.add(cb); setTimeout(emitDishes, 0); return function () { dishL.delete(cb); }; },
       saveDish: function (id, body) { data.dishes[id] = body; persist(); emitDishes(); return Promise.resolve(); },
       deleteDish: function (id) { delete data.dishes[id]; persist(); emitDishes(); return Promise.resolve(); },
+      subscribeExtras: function (week, cb) { extraL.set(cb, week); setTimeout(emitExtras, 0); return function () { extraL.delete(cb); }; },
+      saveExtra: function (id, body) { data.extras[id] = body; persist(); emitExtras(); return Promise.resolve(); },
+      deleteExtra: function (id) { delete data.extras[id]; persist(); emitExtras(); return Promise.resolve(); },
       subscribeChecks: function (week, cb) { checkL.set(cb, week); setTimeout(emitChecks, 0); return function () { checkL.delete(cb); }; },
       setCheck: function (week, key, on) {
         var id = checkId(week, key);
@@ -584,8 +611,8 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
   }
 
   /* ---------- Sofort anzeigen, im Hintergrund speichern ---------- */
-  var serverMeals = [], serverDishes = [];
-  var pendingMeals = new Map(), pendingDishes = new Map();
+  var serverMeals = [], serverDishes = [], serverExtras = [];
+  var pendingMeals = new Map(), pendingDishes = new Map(), pendingExtras = new Map();
   var inflight = 0;
   function newId(prefix) { return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
   function mergePending(list, pending) {
@@ -599,6 +626,8 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
   function recompute() {
     state.meals = mergePending(serverMeals, pendingMeals).filter(function (m) { return typeof m.date === 'string' && m.name; });
     state.dishes = mergePending(serverDishes, pendingDishes).filter(function (d) { return d.name; });
+    var week = iso(state.weekStart);
+    state.extras = mergePending(serverExtras, pendingExtras).filter(function (x) { return x.name && x.week === week; });
   }
   function track(p) {
     inflight++;
@@ -680,6 +709,20 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
       renderList();
     }, function () { /* Liste bleibt mit lokalem Stand nutzbar */ });
   }
+  function subscribeExtras() {
+    if (!store) return;
+    if (unsubExtras) unsubExtras();
+    var week = iso(state.weekStart);
+    serverExtras = [];
+    recompute();
+    unsubExtras = store.subscribeExtras(week, function (list) {
+      if (week !== iso(state.weekStart)) return;
+      serverExtras = list;
+      recompute();
+      renderList();
+    }, function () { /* eigene Einträge fehlen dann, der Rest funktioniert */ });
+  }
+  function subscribeWeek() { subscribeChecks(); subscribeExtras(); }
 
   /* ---------- Ableitungen ---------- */
   function weekMeals() {
@@ -696,11 +739,22 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
         var b = baseOf(ing.unit);
         var key = nm + '|' + b[0];
         var e = map.get(key);
-        if (!e) { e = { key: key, name: String(ing.name).trim(), unit: b[0], amount: 0, hasAmount: false, open: false, dishes: [] }; map.set(key, e); }
+        if (!e) { e = { key: key, name: String(ing.name).trim(), unit: b[0], amount: 0, hasAmount: false, open: false, dishes: [], extras: [] }; map.set(key, e); }
         if (typeof ing.amount === 'number' && isFinite(ing.amount)) { e.amount += ing.amount * b[1]; e.hasAmount = true; }
         else e.open = true;
         if (e.dishes.indexOf(m.name) < 0) e.dishes.push(m.name);
       });
+    });
+    // Eigene Einträge ohne Gericht; gleiche Namen werden mit den Zutaten zusammengelegt
+    state.extras.slice().sort(function (a, b) { return (a.createdAt || 0) - (b.createdAt || 0); }).forEach(function (x) {
+      var nm = normName(x.name);
+      if (!nm) return;
+      var b = baseOf(x.unit);
+      var key = nm + '|' + b[0];
+      var e = map.get(key);
+      if (!e) { e = { key: key, name: String(x.name).trim(), unit: b[0], amount: 0, hasAmount: false, open: false, dishes: [], extras: [] }; map.set(key, e); }
+      if (typeof x.amount === 'number' && isFinite(x.amount)) { e.amount += x.amount * b[1]; e.hasAmount = true; }
+      e.extras.push(x.id);
     });
     return Array.from(map.values()).sort(function (a, b) { return a.name.localeCompare(b.name, 'de'); });
   }
@@ -774,15 +828,21 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
   function itemHtml(e) {
     var checked = state.checks.has(e.key);
     var parts = [];
-    if (!e.hasAmount) parts.push('nach Bedarf');
-    else if (e.open) parts.push('zusätzlich nach Bedarf');
-    parts.push('für ' + e.dishes.join(', '));
+    if (e.dishes.length) {
+      if (!e.hasAmount) parts.push('nach Bedarf');
+      else if (e.open) parts.push('zusätzlich nach Bedarf');
+      parts.push('für ' + e.dishes.join(', '));
+    }
+    if (e.extras.length) parts.push('eigener Eintrag');
+    var del = e.extras.length && state.canWrite
+      ? '<button type="button" class="item-del" data-xdel="' + esc(e.key) + '" aria-label="' + esc('Eigenen Eintrag „' + e.name + '“ entfernen') + '">' + X_ICON + '</button>'
+      : '';
     return '<li class="item"><label>' +
       '<input type="checkbox" data-key="' + esc(e.key) + '"' + (checked ? ' checked' : '') + (state.canWrite ? '' : ' disabled') + '>' +
       '<span class="qty">' + esc(itemQty(e)) + '</span>' +
       '<span class="iname">' + esc(e.name) + '</span>' +
       '<span class="ifor">' + esc(parts.join(' · ')) + '</span>' +
-      '</label></li>';
+      '</label>' + del + '</li>';
   }
   function renderList() {
     var items = shopping();
@@ -790,6 +850,7 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
     var done = items.filter(function (e) { return state.checks.has(e.key); });
     $('items-open').innerHTML = open.map(itemHtml).join('');
     $('items-done').innerHTML = done.map(itemHtml).join('');
+    $('x-form').hidden = !state.canWrite;
     $('done-head').hidden = !done.length;
     $('done-head').textContent = 'Erledigt (' + done.length + ')';
     $('list-empty').hidden = items.length > 0;
@@ -952,7 +1013,7 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
     var draft = { meal: editing, name: name, date: date, slot: body.slot, ing: $('f-ing').value };
     $('editor').close();
     var ws = mondayOf(parseISO(date));
-    if (iso(ws) !== iso(state.weekStart)) { state.weekStart = ws; subscribeChecks(); }
+    if (iso(ws) !== iso(state.weekStart)) { state.weekStart = ws; subscribeWeek(); }
     toast(isNew ? 'Mahlzeit eingetragen' : 'Änderungen gespeichert');
     optimistic(pendingMeals, id, body, function (s) { return s.saveMeal(id, body); }).catch(function (e) {
       reopenDraft(draft, writeError(e));
@@ -972,7 +1033,7 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
   }
 
   /* ---------- Aktionen ---------- */
-  function setWeek(d) { state.weekStart = mondayOf(d); subscribeChecks(); renderAll(); }
+  function setWeek(d) { state.weekStart = mondayOf(d); subscribeWeek(); renderAll(); }
   function setView(v) { state.view = v; lsSet('wochenteller.view', v); renderHeader(); }
   function toggleCheck(key, on) {
     if (!state.canWrite) { renderList(); return; }
@@ -982,6 +1043,30 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
     track(storeReady.then(function (s) { return s.setCheck(week, key, on); })).catch(function (e) {
       toast(writeError(e));
       if (week === iso(state.weekStart)) { if (on) state.checks.delete(key); else state.checks.add(key); renderList(); }
+    });
+  }
+  function addExtra(ev) {
+    ev.preventDefault();
+    var input = $('x-name');
+    var p = parseLine(input.value);
+    input.value = '';
+    input.focus();
+    if (!p || !state.canWrite) return;
+    var week = iso(state.weekStart);
+    var key = normName(p.name) + '|' + baseOf(p.unit)[0];
+    // Schon abgehakt? Dann wieder auf „offen“ setzen, sonst landet der neue Eintrag unter „Erledigt“.
+    if (state.checks.has(key)) toggleCheck(key, false);
+    var id = newId('x');
+    var body = { week: week, name: p.name, amount: p.amount, unit: p.unit, createdAt: Date.now() };
+    optimistic(pendingExtras, id, body, function (s) { return s.saveExtra(id, body); }).catch(function (e) { toast(writeError(e)); });
+  }
+  function removeExtra(key) {
+    var e = shopping().find(function (x) { return x.key === key; });
+    if (!e || !e.extras.length || !state.canWrite) return;
+    if (!e.dishes.length && state.checks.has(key)) toggleCheck(key, false);
+    toast('„' + e.name + '“ entfernt');
+    e.extras.forEach(function (id) {
+      optimistic(pendingExtras, id, null, function (s) { return s.deleteExtra(id); }).catch(function (err) { toast(writeError(err)); });
     });
   }
   function listText() {
@@ -1047,6 +1132,11 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
     var cb = e.target.closest('input[data-key]');
     if (cb) toggleCheck(cb.dataset.key, cb.checked);
   });
+  $('list').addEventListener('click', function (e) {
+    var x = e.target.closest('[data-xdel]');
+    if (x) removeExtra(x.dataset.xdel);
+  });
+  $('x-form').addEventListener('submit', addExtra);
   $('copy').addEventListener('click', copyList);
   $('reset').addEventListener('click', resetChecks);
   $('clear-examples').addEventListener('click', clearExamples);
@@ -1132,7 +1222,7 @@ textarea{resize:vertical; min-height:160px; font-family:var(--font-mono); line-h
       resolveStore(store);
       subscribeMeals();
       subscribeDishes();
-      subscribeChecks();
+      subscribeWeek();
       renderAll();
     });
   })();
